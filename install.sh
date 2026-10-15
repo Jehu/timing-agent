@@ -1,6 +1,6 @@
 #!/bin/bash
 # Install timing-agent for the current user. macOS only: it uses TimingHelper.
-# Run locally after a clone, or pipe the raw GitHub file to bash with GITHUB_TOKEN.
+# Run locally after a clone, or pipe the public raw GitHub file to bash.
 set -euo pipefail
 
 repository="${TIMING_AGENT_REPOSITORY:-Jehu/timing-agent}"
@@ -23,19 +23,9 @@ if [[ -f "$script_dir/bin/ta" && -f "$script_dir/skill/SKILL.md" ]]; then
   install -m 755 "$script_dir/bin/ta" "$bin_dir/ta"
   install -m 644 "$script_dir/skill/SKILL.md" "$skill_dir/SKILL.md"
 else
-  if [[ -z "${GITHUB_TOKEN:-}" ]]; then
-    cat >&2 <<EOF
-This is a remote installation. Set GITHUB_TOKEN to a token with read access to
-$repository, then retry. Example:
-  export GITHUB_TOKEN=github_pat_...
-EOF
-    exit 1
-  fi
-  api="https://api.github.com/repos/$repository/contents"
-  curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github.raw+json" \
-    "$api/bin/ta?ref=$branch" -o "$bin_dir/ta"
-  curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github.raw+json" \
-    "$api/skill/SKILL.md?ref=$branch" -o "$skill_dir/SKILL.md"
+  raw="https://raw.githubusercontent.com/$repository/$branch"
+  curl -fsSL "$raw/bin/ta" -o "$bin_dir/ta"
+  curl -fsSL "$raw/skill/SKILL.md" -o "$skill_dir/SKILL.md"
   chmod 755 "$bin_dir/ta"
 fi
 

@@ -12,30 +12,22 @@ Portable macOS installer for tracking coding-agent work in [Timing](https://timi
 
 ## Install
 
-### From a local copy
-
-Copy this directory to the other Mac, then run:
+### Directly from GitHub
 
 ```bash
-./install.sh
-```
-
-### Directly from the private GitHub repository
-
-GitHub does not permit anonymous raw-file access to private repositories. The
-bootstrap uses a GitHub token only to download the two install files; it does
-not save it. Create a fine-grained personal access token with **Contents:
-Read-only** access to this repository, then run:
-
-```bash
-export GITHUB_TOKEN=github_pat_...
-curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" \
-  https://raw.githubusercontent.com/Jehu/timing-agent/main/install.sh | bash
-unset GITHUB_TOKEN
+curl -fsSL https://raw.githubusercontent.com/Jehu/timing-agent/main/install.sh | bash
 ```
 
 `curl | bash` executes code received from GitHub. Pin `main` to a commit SHA
 in the URL if you need a reproducible installation.
+
+### From a local copy
+
+Clone or download the repository, then run:
+
+```bash
+./install.sh
+```
 
 The installer writes:
 
