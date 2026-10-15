@@ -1,0 +1,129 @@
+#!/bin/bash
+# Track an agent's work in Timing through TimingHelper AppleScript.
+# Resolution order: explicit timing-project in the repository, then Git repo name.
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'EOF'
+usage: ta start [title] | stop | status | project
+
+Resolves the Timing project from .timing-project or AGENTS.md in the Git
+repository root. If neither names a project, uses the repository directory
+name and creates it when required (Timing Connect required for creation).
+EOF
+}
+
+working_dir="${TA_DIR:-$PWD}"
+repo_root="$(git -C "$working_dir" rev-parse --show-toplevel 2>/dev/null || true)"
+config_dir="${repo_root:-$working_dir}"
+project=""
+source="explicit"
+
+for config in "$config_dir/.timing-project" "$config_dir/AGENTS.md"; do
+  [[ -f "$config" ]] || continue
+  candidate="$(grep -m1 -E '^[[:space:]]*timing-project:[[:space:]]*(.+)$' "$config" | sed -E 's/^[[:space:]]*timing-project:[[:space:]]*//; s/[[:space:]]*$//' || true)"
+  if [[ -n "$candidate" ]]; then
+    project="$candidate"
+    break
+  fi
+done
+
+if [[ -z "$project" ]]; then
+  if [[ -z "$repo_root" ]]; then
+    echo "ta: no Git repository and no timing-project declaration — not tracking" >&2
+    exit 1
+  fi
+  project="$(basename "$repo_root")"
+  source="git"
+fi
+
+timing_has_project() {
+  osascript - "$1" <<'APPLESCRIPT' 2>/dev/null | grep -q true
+aon run argv
+  tell application "TimingHelper"
+    if not scripting support available then error "ta: requires Timing Expert"
+    return (count (projects whose name is (item 1 of argv))) > 0
+  end tell
+end run
+APPLESCRIPT
+}
+
+timing_create_project() {
+  osascript - "$1" "${2:-}" <<'APPLESCRIPT'
+on run argv
+  tell application "TimingHelper"
+    if not advanced scripting support available then error "ta: creating projects requires Timing Connect"
+    set projectName to item 1 of argv
+    set parentName to item 2 of argv
+    if parentName is "" then
+      create project name projectName
+    else
+      create project name projectName parent project (front project whose name is parentName)
+    end if
+  end tell
+end run
+APPLESCRIPT
+}
+
+timing_start_timer() {
+  osascript - "$1" "$2" <<'APPLESCRIPT'
+on run argv
+  tell application "TimingHelper"
+    set projectName to item 1 of argv
+    set entryTitle to item 2 of argv
+    start timer with title entryTitle project (front project whose name is projectName)
+  end tell
+end run
+APPLESCRIPT
+}
+
+case "${1:-status}" in
+  project)
+    exists=no
+    timing_has_project "$project" && exists=yes
+    printf '%s (source: %s, exists in Timing: %s)\n' "$project" "$source" "$exists"
+    exit 0
+    ;;
+  start|stop|status) ;;
+  *) usage; exit 2 ;;
+esac
+
+state_file="${TMPDIR:-/tmp}/ta-$UID.state"
+case "${1:-status}" in
+  start)
+    title="${2:-$(basename "$config_dir")}" 
+    if ! timing_has_project "$project"; then
+      if [[ "$source" != git ]]; then
+        echo "ta: Timing project '$project' not found — create it or correct its declaration" >&2
+        exit 1
+      fi
+      timing_create_project "$project" "${TA_DEFAULT_PARENT:-}"
+      printf "ta: created Timing project '%s'\n" "$project"
+    fi
+    timing_start_timer "$project" "$title"
+    printf '%s\t%s\t%s\t%s\n' "$(date +%s)" "$project" "$title" "${BB_THREAD_ID:-}" > "$state_file"
+    printf 'ta: timer started — %s — %s\n' "$project" "$title"
+    ;;
+  stop)
+    if ! osascript -e 'tell application "TimingHelper" to stop current timer' >/dev/null; then
+      rm -f "$state_file"
+      echo "ta: no timer was running" >&2
+      exit 1
+    fi
+    if [[ -f "$state_file" ]]; then
+      IFS=$'\t' read -r started_at tracked_project title thread_id < "$state_file"
+      rm -f "$state_file"
+      printf 'ta: timer stopped — %s — %s — %sm\n' "$tracked_project" "$title" "$(( ($(date +%s) - started_at) / 60 ))"
+    else
+      echo "ta: timer stopped"
+    fi
+    ;;
+  status)
+    if [[ -f "$state_file" ]]; then
+      IFS=$'\t' read -r started_at tracked_project title thread_id < "$state_file"
+      printf 'ta: timer running — %s — %s — %sm (thread %s)\n' "$tracked_project" "$title" "$(( ($(date +%s) - started_at) / 60 ))" "${thread_id:-n/a}"
+    else
+      echo "ta: no agent timer running"
+    fi
+    ;;
+esac
